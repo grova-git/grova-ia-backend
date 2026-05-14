@@ -1,0 +1,4 @@
+sitioweb/
+.env
+__pycache__/
+*.pyc
