@@ -77,6 +77,6 @@ async def upload_products_csv(file: UploadFile = File(...), company_id: str = De
             inserted_count += 1
         except Exception as e:
             logger.error(f"Error procesando producto {name}: {e}")
-            continue
+            raise HTTPException(status_code=400, detail=f"Error en {name}: {str(e)}")
 
     return {"status": "ok", "message": f"Se procesaron e insertaron {inserted_count} productos exitosamente"}
