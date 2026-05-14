@@ -6,3 +6,4 @@ supabase>=2.3.0
 openai>=1.2.0
 httpx>=0.25.0
 python-multipart>=0.0.6
+mercadopago>=2.4.0

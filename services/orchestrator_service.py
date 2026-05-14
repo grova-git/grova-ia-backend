@@ -85,10 +85,37 @@ ESTÉTICA: Utiliza un tono profesional, limpio y editorial. Usa *negritas* para 
         if state == "confirmacion_pedido":
             if message.lower().strip() in ["si", "sí", "yes", "confirmar", "ok", "dale", "perfecto"]:
                 self._update_conversation_state(conv["id"], "pago_pendiente")
-                # Aquí iría la lógica para crear la fila en la tabla 'orders' y generar el link de pago
-                return "✅ *¡Pedido confirmado!* En unos instantes te enviaremos el enlace seguro para realizar el pago."
+                
+                # Buscar la orden pendiente
+                res = supabase.table("orders").select("*").eq("conversation_id", conv["id"]).eq("status", "pendiente").order("created_at", desc=True).limit(1).execute()
+                if not res.data:
+                    self._update_conversation_state(conv["id"], "atencion")
+                    return "No encontré tu pedido pendiente. ¿Podemos empezar de nuevo?"
+                
+                order = res.data[0]
+                mp_token = self.company.get("mercadopago_access_token")
+                
+                if not mp_token:
+                    # Fallback si no hay Mercado Pago configurado
+                    return "✅ *¡Pedido confirmado!* Sin embargo, el comercio no tiene configurado el pago electrónico. Te contactarán en breve para coordinar el pago manual."
+                
+                try:
+                    from services.payment_service import MercadoPagoService
+                    mp_service = MercadoPagoService(mp_token)
+                    pay_link = mp_service.create_preference(order["id"], order["items"], self.company["name"])
+                    
+                    return f"✅ *¡Pedido confirmado!*\n\nPor favor, realiza el pago de *${order['total']}* ingresando a este enlace seguro de Mercado Pago:\n🔗 {pay_link}"
+                except Exception as e:
+                    logger.error(f"Error al generar link MP: {e}")
+                    return "❌ Hubo un error al generar el link de pago. Por favor, intenta de nuevo más tarde o contacta a un asesor."
+                
             elif message.lower().strip() in ["no", "cancelar"]:
                 self._update_conversation_state(conv["id"], "atencion")
+                # Marcar orden como cancelada
+                res = supabase.table("orders").select("id").eq("conversation_id", conv["id"]).eq("status", "pendiente").order("created_at", desc=True).limit(1).execute()
+                if res.data:
+                    supabase.table("orders").update({"status": "cancelada"}).eq("id", res.data[0]["id"]).execute()
+                
                 return "❌ Pedido cancelado. ¿Hay algún otro producto en el que te pueda ayudar?"
             else:
                 return "Por favor, responde *Sí* para confirmar tu pedido o *No* para cancelar."
@@ -118,6 +145,17 @@ ESTÉTICA: Utiliza un tono profesional, limpio y editorial. Usa *negritas* para 
                 elif tool_call.function.name == "generate_order_summary":
                     response_text = self._build_order_summary(args["items"])
                     self._update_conversation_state(conv["id"], "confirmacion_pedido")
+                    
+                    # Guardar orden en BD como pendiente
+                    total = sum(item["quantity"] * item["unit_price"] for item in args["items"])
+                    supabase.table("orders").insert({
+                        "company_id": self.company_id,
+                        "user_phone": user_phone,
+                        "conversation_id": conv["id"],
+                        "total": total,
+                        "items": args["items"],
+                        "status": "pendiente"
+                    }).execute()
                     
                     history.append({"role": "tool", "tool_call_id": tool_call.id, "name": tool_call.function.name, "content": "Resumen generado y enviado."})
                     history.append({"role": "assistant", "content": response_text})
