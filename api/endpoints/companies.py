@@ -27,7 +27,10 @@ def update_company_config(config: ConfigUpdate, company_id: str = Depends(get_cu
     if not update_data:
         return {"status": "ok"}
     
-    response = supabase.table("companies").update(update_data).eq("id", company_id).execute()
-    if not response.data:
-        raise HTTPException(status_code=400, detail="Error al actualizar configuración")
-    return {"status": "ok", "message": "Configuración guardada exitosamente"}
+    try:
+        response = supabase.table("companies").update(update_data).eq("id", company_id).execute()
+        return {"status": "ok", "message": "Configuración guardada exitosamente"}
+    except Exception as e:
+        import logging
+        logging.error(f"Error updating config: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
