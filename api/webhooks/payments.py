@@ -37,17 +37,67 @@ async def mercadopago_webhook(request: Request):
     
     # MP envía topic="payment" o type="payment"
     if payload.get("type") == "payment" and payload.get("action") == "payment.created":
-        # En una integración real habría que hacer un GET a la API de MP 
-        # para verificar el estado usando el ID de payload["data"]["id"]
-        # Aquí simplificamos asumiendo que validamos la metadata:
         payment_id = payload["data"]["id"]
-        # Obtenemos metadata simulada (en MP se manda en preference_id o external_reference)
         order_id = request.query_params.get("order_id") 
         
         if order_id:
-            return await process_successful_payment(order_id, str(payment_id))
+            import httpx
+            # 1. Obtener la orden para saber qué empresa es
+            res_order = supabase.table("orders").select("company_id").eq("id", order_id).execute()
+            if res_order.data:
+                company_id = res_order.data[0]["company_id"]
+                res_company = supabase.table("companies").select("mercadopago_access_token").eq("id", company_id).execute()
+                
+                if res_company.data:
+                    mp_token = res_company.data[0].get("mercadopago_access_token")
+                    if mp_token:
+                        # 2. Consultar el estado real del pago en Mercado Pago
+                        async with httpx.AsyncClient() as client:
+                            mp_res = await client.get(
+                                f"https://api.mercadopago.com/v1/payments/{payment_id}",
+                                headers={"Authorization": f"Bearer {mp_token}"}
+                            )
+                            if mp_res.status_code == 200:
+                                payment_data = mp_res.json()
+                                status = payment_data.get("status")
+                                
+                                if status == "approved":
+                                    return await process_successful_payment(order_id, str(payment_id))
+                                elif status == "rejected":
+                                    return await process_rejected_payment(order_id, str(payment_id))
+                                else:
+                                    logger.info(f"Pago {payment_id} recibido pero estado es: {status}")
+                                    return {"status": "pending_or_other"}
 
     return {"status": "ok"}
+
+
+async def process_rejected_payment(order_id: str, payment_id: str):
+    """Notifica al usuario que el pago fue rechazado."""
+    try:
+        res_order = supabase.table("orders").select("*").eq("id", order_id).execute()
+        if not res_order.data:
+            return {"status": "ignored"}
+        order = res_order.data[0]
+        
+        # Guardamos que hubo un rechazo, pero NO cambiamos el status a cancelada
+        # para que pueda intentar pagarlo de nuevo.
+        supabase.table("orders").update({"payment_id": payment_id}).eq("id", order_id).execute()
+        
+        res_company = supabase.table("companies").select("*").eq("id", order["company_id"]).execute()
+        if res_company.data:
+            company = res_company.data[0]
+            reject_msg = "❌ *Tu tarjeta ha rechazado el pago.*\n\nPor favor, ingresa nuevamente al enlace y selecciona otro medio de pago o tarjeta para poder procesar tu orden."
+            send_message(
+                phone_number_id=company["whatsapp_phone_number_id"],
+                to=order["user_phone"],
+                text=reject_msg,
+                access_token=company.get("whatsapp_access_token", "")
+            )
+        return {"status": "rejected_notified"}
+    except Exception as e:
+        logger.error(f"Error procesando pago rechazado: {e}")
+        return {"status": "error"}
 
 
 async def process_successful_payment(order_id: str, payment_id: str):
