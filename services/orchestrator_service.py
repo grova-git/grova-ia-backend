@@ -79,7 +79,15 @@ ESTÉTICA: Utiliza un tono profesional, limpio y editorial. Usa *negritas* para 
             return None # El bot guarda silencio
             
         if state == "pago_pendiente":
-            return "⏳ *Tu pago está pendiente.* Por favor, completa el pago en el enlace que te enviamos anteriormente para procesar tu orden."
+            if "cancelar" in message.lower() or "anular" in message.lower() or "no" in message.lower().split():
+                self._update_conversation_state(conv["id"], "atencion")
+                # Intentar cancelar la orden pendiente si existe
+                res = supabase.table("orders").select("id").eq("conversation_id", conv["id"]).eq("status", "pendiente").order("created_at", desc=True).limit(1).execute()
+                if res.data:
+                    supabase.table("orders").update({"status": "cancelada"}).eq("id", res.data[0]["id"]).execute()
+                return "❌ Pedido cancelado exitosamente. Tu carrito ha sido vaciado. ¿En qué más te puedo ayudar hoy?"
+                
+            return "⏳ *Tu pago está pendiente.* Por favor, completa el pago en el enlace de Mercado Pago que te enviamos para procesar tu orden.\n\n_(Si deseas anular este pedido y empezar de nuevo, escribe *Cancelar*)_"
 
         # 2. Validación Transaccional (Confirmación del Pedido)
         if state == "confirmacion_pedido":
