@@ -112,7 +112,7 @@ ESTÉTICA: Utiliza un tono profesional, limpio y editorial. Usa *negritas* para 
                     mp_service = MercadoPagoService(mp_token)
                     pay_link = mp_service.create_preference(order["id"], order["items"], self.company["name"])
                     
-                    return f"✅ *¡Pedido confirmado!*\n\nPor favor, realiza el pago de *${order['total']}* ingresando a este enlace seguro de Mercado Pago:\n🔗 {pay_link}"
+                    return f"✅ *¡Pedido confirmado!*\n\nPor favor, realiza el pago de *${order['subtotal']}* ingresando a este enlace seguro de Mercado Pago:\n🔗 {pay_link}"
                 except Exception as e:
                     logger.error(f"Error al generar link MP: {e}")
                     return "❌ Hubo un error al generar el link de pago. Por favor, intenta de nuevo más tarde o contacta a un asesor."
@@ -160,7 +160,7 @@ ESTÉTICA: Utiliza un tono profesional, limpio y editorial. Usa *negritas* para 
                         "company_id": self.company_id,
                         "user_phone": user_phone,
                         "conversation_id": conv["id"],
-                        "total": total,
+                        "subtotal": total,
                         "items": args["items"],
                         "status": "pendiente"
                     }).execute()
